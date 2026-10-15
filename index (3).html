@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<title>Рулетка номеров</title>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --panel: #121a2e;
+    --panel2: #0f1626;
+    --stroke: rgba(255,255,255,0.07);
+    --text: #e8ecf5;
+    --muted: #8a94ab;
+    --gold: #f5a623;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    max-width: 620px; margin: 0 auto; padding: 20px 16px 40px;
+    position: relative; overflow-x: hidden;
+  }
+  body::before, body::after {
+    content: ""; position: fixed; border-radius: 50%; z-index: 0; pointer-events: none;
+  }
+  body::before {
+    width: 420px; height: 420px; right: -160px; top: -120px;
+    background: radial-gradient(circle, rgba(63,106,216,0.28), transparent 70%);
+  }
+  body::after {
+    width: 380px; height: 380px; left: -150px; bottom: -140px;
+    background: radial-gradient(circle, rgba(63,106,216,0.18), transparent 70%);
+  }
+  .wrap { position: relative; z-index: 1; }
+
+  .header { display: flex; justify-content: space-between; align-items: center; margin: 10px 0 24px; }
+  .header-left { display: flex; gap: 14px; align-items: center; }
+  .logo {
+    width: 52px; height: 52px; border-radius: 14px;
+    background: var(--panel); border: 1px solid var(--stroke);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+  }
+  .title { font-size: 30px; font-weight: 800; }
+  .title .accent { color: #6f9bff; }
+  .subtitle { color: var(--muted); font-size: 13.5px; margin-top: 3px; line-height: 1.35; }
+  .collection-pill {
+    background: var(--panel); border: 1px solid var(--stroke);
+    border-radius: 14px; padding: 10px 16px; text-align: center; white-space: nowrap;
+  }
+  .collection-pill .num { font-size: 22px; font-weight: bold; }
+  .collection-pill .label { color: var(--muted); font-size: 12px; }
+
+  .balance-card {
+    background: var(--panel); border: 1px solid var(--stroke);
+    border-radius: 18px; padding: 18px 22px;
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 22px;
+  }
+  .balance-label { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+  .balance-value { font-size: 30px; font-weight: 800; }
+  .balance-value .unit { font-size: 15px; font-weight: normal; color: var(--muted); margin-left: 6px; }
+  .divider { width: 1px; height: 44px; background: var(--stroke); }
+  .best-block { text-align: right; }
+  .best-value { font-size: 17px; font-weight: 700; color: var(--gold); margin-top: 6px; }
+
+  .row {
+    display: flex; align-items: center; gap: 16px;
+    background: var(--panel2); border: 1px solid var(--stroke);
+    border-radius: 16px; padding: 14px 18px; margin-bottom: 14px;
+    cursor: pointer; transition: transform 0.15s, background 0.2s;
+    width: 100%; text-align: left; color: var(--text);
+    font-family: inherit;
+  }
+  .row:hover { transform: translateY(-2px); background: #16203a; }
+  .row:active { transform: scale(0.99); }
+  .row:disabled { opacity: 0.45; cursor: default; transform: none; }
+  .row .icon {
+    width: 48px; height: 48px; border-radius: 12px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 22px;
+  }
+  .row .texts { flex: 1; }
+  .row .name { font-size: 19px; font-weight: 700; }
+  .row .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .row .chevron { color: var(--muted); font-size: 20px; flex-shrink: 0; }
+  .row.gold { background: linear-gradient(135deg, #e89b1c, #f6c04a); border: none;
+    box-shadow: 0 8px 28px rgba(238,160,40,0.30); }
+  .row.gold .name, .row.gold .sub, .row.gold .chevron { color: #2b1c05; }
+  .row.gold .sub { opacity: 0.75; }
+  .row.gold .icon { background: rgba(255,255,255,0.22); }
+  .row.blue { border-color: rgba(63,106,216,0.45); }
+  .row.blue .icon { background: rgba(63,106,216,0.22); }
+  .row.purple { border-color: rgba(123,77,216,0.45); }
+  .row.purple .icon { background: rgba(123,77,216,0.25); }
+  .row.red { border-color: rgba(201,54,74,0.45); }
+  .row.red .icon { background: rgba(201,54,74,0.25); }
+
+  .screen-title { font-size: 24px; font-weight: 800; margin: 8px 0 14px; }
+  .screen-sub { color: var(--muted); font-size: 14px; margin-bottom: 16px; line-height: 1.45; }
+  .card {
+    background: var(--panel2); border: 1px solid var(--stroke);
+    border-radius: 16px; padding: 16px 18px; margin: 12px 0;
+    animation: fadeUp 0.35s ease;
+    border-left: 4px solid #9aa0a6;
+  }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .card.craft-pop { animation: craftPop 0.55s ease; }
+  @keyframes craftPop {
+    0% { opacity: 0; transform: scale(0.6); }
+    60% { opacity: 1; transform: scale(1.08); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  .card.c-Редкий { border-left-color: #4299e1; }
+  .card.c-Эпический { border-left-color: #9334e6; }
+  .card.c-Мифический { border-left-color: #00d1c1;
+    box-shadow: 0 0 20px rgba(0,209,193,0.20); }
+  .card.c-ЛЕГЕНДАРНЫЙ { border-left-color: var(--gold);
+    box-shadow: 0 0 24px rgba(245,166,35,0.22); }
+  .card.c-УЛЬТРА { border-left-color: #ffd700;
+    box-shadow: 0 0 36px rgba(255,215,0,0.5); }
+  .num-line { font-size: 21px; font-weight: 700; font-family: 'Consolas', monospace; letter-spacing: 0.5px; }
+  .badge {
+    display: inline-block; padding: 3px 11px; border-radius: 999px;
+    font-size: 12px; font-weight: bold; margin-left: 8px; vertical-align: middle;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+  .b-Обычный { background: rgba(154,160,166,0.18); color: #b8bfc9; }
+  .b-Редкий { background: rgba(66,153,225,0.22); color: #6aa9ff; }
+  .b-Эпический { background: rgba(147,52,230,0.28); color: #c88cff; }
+  .b-Мифический { background: rgba(0,209,193,0.20); color: #4de8db; }
+  .b-ЛЕГЕНДАРНЫЙ { background: rgba(245,166,35,0.22); color: var(--gold); }
+  .b-УЛЬТРА { background: rgba(255,215,0,0.28); color: #ffe066; }
+  .desc { color: var(--muted); font-size: 13px; margin-top: 6px; font-style: italic; }
+  .price { color: var(--gold); font-weight: 700; margin-top: 6px; font-size: 14px; }
+
+  .btn {
+    display: block; width: 100%; padding: 15px; margin: 10px 0;
+    border-radius: 14px; border: 1px solid var(--stroke);
+    background: var(--panel2); color: var(--text);
+    font-size: 16px; font-weight: 600; cursor: pointer; font-family: inherit;
+    transition: transform 0.15s, background 0.2s;
+  }
+  .btn:hover:not(:disabled) { transform: translateY(-2px); background: #16203a; }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .btn.green { background: linear-gradient(135deg, #2f855a, #48bb78); border: none; }
+  .btn.red { background: linear-gradient(135deg, #9b2c2c, #e0475c); border: none; }
+
+  .legend-burst {
+    text-align: center; font-size: 20px; font-weight: 800; color: var(--gold);
+    margin: 14px 0; animation: pulse 0.6s ease infinite alternate;
+  }
+  .mythic-burst {
+    text-align: center; font-size: 19px; font-weight: 800; color: #4de8db;
+    margin: 14px 0; animation: pulse 0.6s ease infinite alternate;
+  }
+  .ultra-burst {
+    text-align: center; font-size: 22px; font-weight: 800; color: #ffd700;
+    margin: 14px 0; animation: pulse 0.4s ease infinite alternate;
+    text-shadow: 0 0 18px rgba(255,215,0,0.6);
+  }
+  @keyframes pulse { from { transform: scale(1); opacity: 0.75; } to { transform: scale(1.1); opacity: 1; } }
+
+  .overlay {
+    position: fixed; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(5,8,18,0.88); z-index: 10; backdrop-filter: blur(5px);
+  }
+  .overlay.show { display: flex; }
+  .spin-text { font-size: 38px; font-weight: 800; color: var(--gold);
+    animation: pulse 0.5s ease infinite alternate; text-align: center; }
+  .spin-num { font-size: 28px; font-family: 'Consolas', monospace; color: #fff;
+    margin-top: 20px; min-height: 40px; text-align: center; }
+
+  .flash { position: fixed; inset: 0; pointer-events: none; z-index: 20;
+    opacity: 0; }
+  .flash.gold { background: radial-gradient(circle, rgba(245,166,35,0.5), transparent 70%); }
+  .flash.mythic { background: radial-gradient(circle, rgba(0,209,193,0.5), transparent 70%); }
+  .flash.ultra { background: radial-gradient(circle, rgba(255,215,0,0.75), transparent 65%); }
+  .flash.go { animation: flashAnim 1.4s ease; }
+  @keyframes flashAnim { 0% { opacity: 0; } 25% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* Попап вместо alert/confirm */
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    background: #1c2740; border: 1px solid var(--stroke);
+    color: var(--text); padding: 13px 20px; border-radius: 14px;
+    font-size: 14.5px; z-index: 40; max-width: 90vw; text-align: center;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    opacity: 0; transition: opacity 0.25s, transform 0.25s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(-6px); }
+
+  .confirm-box {
+    position: fixed; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(5,8,18,0.85); z-index: 30;
+  }
+  .confirm-box.show { display: flex; }
+  .confirm-card {
+    background: var(--panel); border: 1px solid var(--stroke);
+    border-radius: 18px; padding: 22px; width: min(320px, 88vw);
+    animation: fadeUp 0.25s ease;
+  }
+  .confirm-card .ctext { font-size: 15px; line-height: 1.45; margin-bottom: 16px; }
+
+  .back-wrap { margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">📱</div>
+      <div>
+        <div class="title">Рулетка <span class="accent">номеров</span></div>
+        <div class="subtitle">Крути колесо, собирай красивые номера,<br>крафти легендарные</div>
+      </div>
+    </div>
+    <div class="collection-pill">
+      <div class="num" id="count">0</div>
+      <div class="label">В коллекции</div>
+    </div>
+  </div>
+
+  <div class="balance-card">
+    <div>
+      <div class="balance-label">Твой баланс</div>
+      <div class="balance-value"><span id="balance"></span><span class="unit">монет</span></div>
+    </div>
+    <div class="divider"></div>
+    <div class="best-block">
+      <div class="balance-label">👑 Лучший номер</div>
+      <div class="best-value" id="best">—</div>
+    </div>
+  </div>
+
+  <div id="area"></div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div>
+    <div class="spin-text" id="spinText">Крутим…</div>
+    <div class="spin-num" id="spinNum"></div>
+  </div>
+</div>
+<div class="flash" id="flash"></div>
+<div class="toast" id="toast"></div>
+<div class="confirm-box" id="confirmBox">
+  <div class="confirm-card">
+    <div class="ctext" id="confirmText"></div>
+    <button class="btn green" id="confirmYes">Да</button>
+    <button class="btn" id="confirmNo">Отмена</button>
+  </div>
+</div>
+
+<script>
+// ===== TELEGRAM WEB APP =====
+const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+if (tg) {
+  tg.ready();
+  tg.expand();
+  // Подстраховка на случай светлой темы Telegram: свои цвета всё равно главные
+  if (tg.setHeaderColor) try { tg.setHeaderColor('#0a0e1a'); } catch (e) {}
+}
+
+// Вибрация: безопасно работает и вне Telegram
+function haptic(kind) {
+  if (!tg || !tg.HapticFeedback) return;
+  try {
+    if (kind === 'success') tg.HapticFeedback.notificationOccurred('success');
+    else if (kind === 'error') tg.HapticFeedback.notificationOccurred('error');
+    else if (kind === 'warning') tg.HapticFeedback.notificationOccurred('warning');
+    else if (kind === 'light') tg.HapticFeedback.impactOccurred('light');
+    else if (kind === 'heavy') tg.HapticFeedback.impactOccurred('heavy');
+  } catch (e) {}
+}
+
+// ===== НАСТРОЙКИ =====
+const START_COINS = 30000;
+const SPIN_COST = 500;
+const CRAFT_FEES = {"Обычный": 0, "Редкий": 0, "Эпический": 0, "Мифический": 0};
+const CRAFT_LUCK = 0.10;
+const PITY_LIMIT = 50;
+const ULTRA_NUMBER = "+7 (962) 133-01-20";
+const ULTRA_VALUE = 1000000;
+const RARITIES = ["Обычный", "Редкий", "Эпический", "Мифический", "ЛЕГЕНДАРНЫЙ", "УЛЬТРА"];
+const NEXT_RARITY = {
+  "Обычный": "Редкий",
+  "Редкий": "Эпический",
+  "Эпический": "Мифический",
+  "Мифический": "ЛЕГЕНДАРНЫЙ"
+};
+const RARITY_WEIGHT = {"Обычный": 849, "Редкий": 110, "Эпический": 30, "Мифический": 8, "ЛЕГЕНДАРНЫЙ": 2, "УЛЬТРА": 1};
+const RARITY_EMOJI = {"Обычный": "⚪", "Редкий": "🔵", "Эпический": "🟣", "Мифический": "💠", "ЛЕГЕНДАРНЫЙ": "🟡", "УЛЬТРА": "🌟"};
+
+// ===== СОХРАНЕНИЕ =====
+function load() {
+  try {
+    const raw = localStorage.getItem("roulette_save");
+    if (raw) {
+      const s = JSON.parse(raw);
+      if (!s.won) s.won = [];
+      if (typeof s.pity !== "number") s.pity = 0;
+      if (typeof s.ultraGone !== "boolean") s.ultraGone = false;
+      return s;
+    }
+  } catch (e) {}
+  return { coins: START_COINS, won: [], pity: 0, pending: null, ultraGone: false };
+}
+function save() { localStorage.setItem("roulette_save", JSON.stringify(S)); }
+let S = load();
+
+// ===== ЛОГИКА =====
+function randomInt(n) { return Math.floor(Math.random() * n); }
+function randomDigits(n) {
+  let s = "";
+  for (let i = 0; i < n; i++) s += randomInt(10);
+  return s;
+}
+function generateFakeNumber() {
+  return "+7 (9" + randomDigits(2) + ") " + randomDigits(3) + "-" + randomDigits(2) + "-" + randomDigits(2);
+}
+function evaluate(number) {
+  if (number === ULTRA_NUMBER) {
+    return { rarity: "УЛЬТРА", desc: "номер создателя — единственный в игре", value: ULTRA_VALUE };
+  }
+  const digits = number.replace(/\D/g, "");
+  const after9 = digits.slice(2);
+  const d = digits.slice(-7);
+  const combos = [];
+
+  if (new Set(after9).size === 1) {
+    combos.push([100000, "ЛЕГЕНДАРНЫЙ", "все цифры после девятки одинаковые"]);
+  } else if (new Set(d).size === 1) {
+    combos.push([40000, "Мифический", "все цифры номера одинаковые"]);
+  }
+  let up = true, down = true;
+  for (let i = 0; i < d.length - 1; i++) {
+    if ((+d[i+1] - +d[i] + 10) % 10 !== 1) up = false;
+    if ((+d[i] - +d[i+1] + 10) % 10 !== 1) down = false;
+  }
+  if (up || down) combos.push([6000, "Эпический", "цифры идут по порядку"]);
+  for (let i = 0; i < d.length - 3; i++) {
+    if (d[i] === d[i+1] && d[i+1] === d[i+2] && d[i+2] === d[i+3]) {
+      combos.push([4000, "Эпический", "четыре одинаковые цифры подряд"]); break;
+    }
+  }
+  if (d[3] === d[6] && d[4] === d[5]) combos.push([1500, "Редкий", "зеркальные цифры"]);
+  for (let i = 0; i < d.length - 2; i++) {
+    if (d[i] === d[i+1] && d[i+1] === d[i+2]) {
+      combos.push([1200, "Редкий", "три одинаковые цифры подряд"]); break;
+    }
+  }
+  for (let i = 0; i < d.length - 1; i++) {
+    if (d[i] === d[i+1]) { combos.push([350, "Обычный", "есть пара одинаковых рядом"]); break; }
+  }
+  if (!combos.length) return { rarity: "Обычный", desc: "", value: 200 };
+  const best = combos.sort((a, b) => b[0] - a[0])[0];
+  return { rarity: best[1], desc: best[2], value: best[0] };
+}
+function generateNumberOfRarity(target) {
+  if (target === "УЛЬТРА") {
+    return { number: ULTRA_NUMBER, rarity: "УЛЬТРА", desc: "номер создателя — единственный в игре", value: ULTRA_VALUE };
+  }
+  for (;;) {
+    const number = generateFakeNumber();
+    const ev = evaluate(number);
+    if (ev.rarity === target) return { number: number, rarity: ev.rarity, desc: ev.desc, value: ev.value };
+  }
+}
+function makePrize() {
+  const pool = RARITIES.filter(r => r !== "УЛЬТРА" || !S.ultraGone);
+  let total = 0;
+  for (const r of pool) total += RARITY_WEIGHT[r];
+  let x = Math.random() * total;
+  for (const r of pool) { x -= RARITY_WEIGHT[r]; if (x < 0) return generateNumberOfRarity(r); }
+  return generateNumberOfRarity("Обычный");
+}
+function spinOnce() {
+  if (S.pity + 1 >= PITY_LIMIT) { S.pity = 0; return generateNumberOfRarity("ЛЕГЕНДАРНЫЙ"); }
+  const prize = makePrize();
+  S.pity = (prize.rarity === "ЛЕГЕНДАРНЫЙ" || prize.rarity === "УЛЬТРА") ? 0 : S.pity + 1;
+  return prize;
+}
+
+// ===== ЭКРАН =====
+const area = document.getElementById("area");
+const balanceEl = document.getElementById("balance");
+const countEl = document.getElementById("count");
+const bestEl = document.getElementById("best");
+const overlay = document.getElementById("overlay");
+const spinNum = document.getElementById("spinNum");
+const flash = document.getElementById("flash");
+const fmt = n => n.toLocaleString("ru-RU");
+
+function updateTop() {
+  balanceEl.textContent = fmt(S.coins);
+  countEl.textContent = S.won.length;
+  if (S.won.length) {
+    let b = S.won[0];
+    for (const p of S.won) if (p.value > b.value) b = p;
+    bestEl.textContent = b.number + " " + RARITY_EMOJI[b.rarity];
+  } else {
+    bestEl.textContent = "—";
+  }
+}
+
+function prizeHtml(p, index, pop) {
+  const emoji = RARITY_EMOJI[p.rarity];
+  const desc = p.desc ? '<div class="desc">✨ ' + p.desc + '</div>' : "";
+  return '<div class="card c-' + p.rarity + (pop ? ' craft-pop' : '') + '">' +
+    '<div><span class="num-line">' + (index ? index + ". " : "") + p.number + '</span>' +
+    '<span class="badge b-' + p.rarity + '">' + emoji + " " + p.rarity + '</span></div>' +
+    desc +
+    '<div class="price">💰 ' + fmt(p.value) + ' монет</div>' +
+    '</div>';
+}
+
+function plural(n) {
+  const d = n % 10, h = n % 100;
+  if (d === 1 && h !== 11) return "номер";
+  if (d >= 2 && d <= 4 && (h < 10 || h > 20)) return "номера";
+  return "номеров";
+}
+
+// ===== ТОСТ И ПОДТВЕРЖДЕНИЕ (вместо alert/confirm) =====
+let toastTimer = null;
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+let confirmCb = null;
+function askConfirm(text, onYes) {
+  const box = document.getElementById("confirmBox");
+  document.getElementById("confirmText").textContent = text;
+  confirmCb = onYes;
+  box.classList.add("show");
+}
+document.getElementById("confirmYes").onclick = () => {
+  document.getElementById("confirmBox").classList.remove("show");
+  if (confirmCb) confirmCb();
+  confirmCb = null;
+};
+document.getElementById("confirmNo").onclick = () => {
+  document.getElementById("confirmBox").classList.remove("show");
+  confirmCb = null;
+};
+
+// ===== ГЛАВНЫЙ ЭКРАН =====
+function showMenu() {
+  updateTop();
+  // Если остался нерешённый номер с прошлой сессии — сразу показываем его
+  if (S.pending) { showResult(S.pending); return; }
+  area.innerHTML =
+    '<button class="row gold" onclick="startSpin()">' +
+      '<div class="icon">🎰</div>' +
+      '<div class="texts">' +
+        '<div class="name">Крутить рулетку</div>' +
+        '<div class="sub">' + SPIN_COST + ' монет</div>' +
+      '</div>' +
+      '<div class="chevron">›</div>' +
+    '</button>' +
+    '<button class="row blue" onclick="showCollection()">' +
+      '<div class="icon">🖼️</div>' +
+      '<div class="texts">' +
+        '<div class="name">Моя коллекция</div>' +
+        '<div class="sub">' + S.won.length + ' ' + plural(S.won.length) + '</div>' +
+      '</div>' +
+      '<div class="chevron">›</div>' +
+    '</button>' +
+    '<button class="row purple" onclick="showCraft()">' +
+      '<div class="icon">🔨</div>' +
+      '<div class="texts">' +
+        '<div class="name">Крафт</div>' +
+        '<div class="sub">5 номеров в один · бесплатно</div>' +
+      '</div>' +
+      '<div class="chevron">›</div>' +
+    '</button>' +
+    '<button class="row red" onclick="sellAllCommons()">' +
+      '<div class="icon">🏷️</div>' +
+      '<div class="texts">' +
+        '<div class="name">Продать все обычные номера</div>' +
+        '<div class="sub">Быстрая продажа</div>' +
+      '</div>' +
+      '<div class="chevron">›</div>' +
+    '</button>';
+}
+
+// ===== КРУТКА =====
+function startSpin() {
+  if (S.pending) { showResult(S.pending); return; }
+  if (S.coins < SPIN_COST) { haptic('error'); toast("Не хватает монет! Нужно " + SPIN_COST + "."); return; }
+  S.coins -= SPIN_COST;
+  const prize = spinOnce();
+  if (prize.rarity === "УЛЬТРА") S.ultraGone = true;
+  S.pending = prize;
+  save();
+  updateTop();
+  haptic('light');
+
+  overlay.classList.add("show");
+  let ticks = 0;
+  const timer = setInterval(() => {
+    spinNum.textContent = generateFakeNumber();
+    ticks++;
+    if (ticks > 18) {
+      clearInterval(timer);
+      spinNum.textContent = prize.number;
+      setTimeout(() => {
+        overlay.classList.remove("show");
+        showResult(prize);
+      }, 700);
+    }
+  }, 90);
+}
+
+function showResult(prize) {
+  updateTop();
+  let html = '<div class="screen-title">Колесо остановилось!</div>' + prizeHtml(prize);
+  if (prize.rarity === "УЛЬТРА") {
+    flash.className = "flash ultra";
+    flash.classList.remove("go"); void flash.offsetWidth; flash.classList.add("go");
+    html += '<div class="ultra-burst">🌟 ТЫ ПОЙМАЛ НОМЕР СОЗДАТЕЛЯ! 🌟</div>';
+    haptic('success');
+  } else if (prize.rarity === "ЛЕГЕНДАРНЫЙ") {
+    flash.className = "flash gold";
+    flash.classList.remove("go"); void flash.offsetWidth; flash.classList.add("go");
+    html += '<div class="legend-burst">🎉 ЛЕГЕНДАРНЫЙ! ПОЗДРАВЛЯЮ! 🎉</div>';
+    haptic('success');
+  } else if (prize.rarity === "Мифический") {
+    flash.className = "flash mythic";
+    flash.classList.remove("go"); void flash.offsetWidth; flash.classList.add("go");
+    html += '<div class="mythic-burst">💫 МИФИЧЕСКИЙ НОМЕР! 💫</div>';
+    haptic('success');
+  } else {
+    haptic('light');
+  }
+  html +=
+    '<button class="btn green" onclick="keepPending()">💎 Оставить в коллекцию</button>' +
+    '<button class="btn red" onclick="sellPending()">💰 Продать за ' + fmt(prize.value) + '</button>' +
+    '<div class="back-wrap"><button class="btn" onclick="showMenu()">В меню</button></div>';
+  area.innerHTML = html;
+}
+function keepPending() {
+  if (S.pending) { S.won.push(S.pending); S.pending = null; save(); }
+  showMenu();
+}
+function sellPending() {
+  if (S.pending) { S.coins += S.pending.value; S.pending = null; save(); }
+  showMenu();
+}
+
+// ===== КОЛЛЕКЦИЯ =====
+function showCollection() {
+  updateTop();
+  if (!S.won.length) {
+    area.innerHTML = '<div class="screen-title">📔 Коллекция</div>' +
+      '<div class="screen-sub">Пока пусто. Крути рулетку!</div>' +
+      '<button class="btn" onclick="showMenu()">В меню</button>';
+    return;
+  }
+  const counts = {};
+  S.won.forEach(p => counts[p.rarity] = (counts[p.rarity] || 0) + 1);
+  let html = '<div class="screen-title">📔 Коллекция (' + S.won.length + ')</div>' +
+    '<div class="screen-sub">' +
+    RARITIES.map(r => RARITY_EMOJI[r] + " " + (counts[r] || 0)).join("   ") + '</div>';
+  if (S.ultraGone && !counts["УЛЬТРА"]) {
+    html += '<div class="screen-sub">🌟 Номер создателя уже кем-то найдён — второй раз он не выпадет.</div>';
+  }
+  S.won.forEach((p, i) => {
+    html += prizeHtml(p, i + 1) +
+      '<button class="btn red" onclick="sellOne(' + i + ')">Продать за ' + fmt(p.value) + '</button>';
+  });
+  html += '<div class="back-wrap"><button class="btn" onclick="showMenu()">В меню</button></div>';
+  area.innerHTML = html;
+}
+function sellOne(i) {
+  S.coins += S.won[i].value;
+  toast("Продан номер " + S.won[i].number + " за " + fmt(S.won[i].value) + " монет!");
+  S.won.splice(i, 1);
+  save();
+  haptic('light');
+  showCollection();
+}
+
+// ===== ПРОДАЖА ВСЕХ ОБЫЧНЫХ =====
+function sellAllCommons() {
+  const commons = S.won.filter(p => p.rarity === "Обычный");
+  if (!commons.length) { toast("Обычных номеров в коллекции нет."); return; }
+  let total = 0;
+  for (const p of commons) total += p.value;
+  askConfirm(
+    "Продать все обычные номера (" + commons.length + " шт.) за " + fmt(total) + " монет?",
+    () => {
+      S.won = S.won.filter(p => p.rarity !== "Обычный");
+      S.coins += total;
+      save();
+      showMenu();
+      toast("Продано " + commons.length + " номеров за " + fmt(total) + " монет!");
+    }
+  );
+}
+
+// ===== КРАФТ =====
+function showCraft() {
+  updateTop();
+  if (S.won.length < 5) {
+    area.innerHTML = '<div class="screen-title">🔨 Крафт</div>' +
+      '<div class="screen-sub">Для крафта нужно 5 номеров, у тебя ' + S.won.length + '.</div>' +
+      '<button class="btn" onclick="showMenu()">В меню</button>';
+    return;
+  }
+  const counts = {};
+  S.won.forEach(p => counts[p.rarity] = (counts[p.rarity] || 0) + 1);
+  let html = '<div class="screen-title">🔨 Крафт</div>' +
+    '<div class="screen-sub">Крафт бесплатный! Сжигаешь 5 номеров одной редкости — получаешь номер на ступень выше. С шансом ' +
+    Math.round(CRAFT_LUCK * 100) + '% перепрыгнет через ступень!</div>';
+  for (const r of RARITIES.slice(0, 4)) {
+    const ok = counts[r] >= 5;
+    html += '<button class="row" ' + (ok ? 'onclick="doCraft(\'' + r + '\')"' : 'disabled') + '>' +
+      '<div class="icon">' + RARITY_EMOJI[r] + '</div>' +
+      '<div class="texts">' +
+        '<div class="name">5× ' + r + ' → ' + NEXT_RARITY[r] + '</div>' +
+        '<div class="sub">есть ' + counts[r] + ' из 5 · бесплатно' +
+          (ok ? "" : " · не хватает номеров") + '</div>' +
+      '</div>' +
+      '<div class="chevron">›</div>' +
+    '</button>';
+  }
+  html += '<div class="back-wrap"><button class="btn" onclick="showMenu()">В меню</button></div>';
+  area.innerHTML = html;
+}
+function doCraft(rarity) {
+  const burned = [];
+  for (const p of S.won) {
+    if (p.rarity === rarity && burned.length < 5) burned.push(p);
+  }
+  if (burned.length < 5) return;
+  for (const p of burned) S.won.splice(S.won.indexOf(p), 1);
+  let target = NEXT_RARITY[rarity];
+  let lucky = false;
+  if (Math.random() < CRAFT_LUCK) { target = NEXT_RARITY[target]; lucky = true; }
+  const crafted = generateNumberOfRarity(target);
+  S.won.push(crafted);
+  save();
+  updateTop();
+  haptic(lucky ? 'success' : 'light');
+  let html = '<div class="screen-title">Крафт завершён</div>';
+  if (lucky) {
+    if (crafted.rarity === "ЛЕГЕНДАРНЫЙ") html += '<div class="legend-burst">🎉 УДАЧА! Крафт перепрыгнул через ступень! 🎉</div>';
+    else html += '<div class="mythic-burst">💫 УДАЧА! Крафт перепрыгнул через ступень! 💫</div>';
+  }
+  html += prizeHtml(crafted, 0, true) +
+    '<div class="back-wrap"><button class="btn" onclick="showMenu()">В меню</button></div>';
+  area.innerHTML = html;
+}
+
+showMenu();
+</script>
+</body>
+</html>

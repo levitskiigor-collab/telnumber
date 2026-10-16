@@ -183,9 +183,8 @@
   .flash.go { animation: flashAnim 1.4s ease; }
   @keyframes flashAnim { 0% { opacity: 0; } 25% { opacity: 1; } 100% { opacity: 0; } }
 
-  /* Попап вместо alert/confirm */
   .toast {
-    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    position: fixed; left: 50%; bottom: 56px; transform: translateX(-50%);
     background: #1c2740; border: 1px solid var(--stroke);
     color: var(--text); padding: 13px 20px; border-radius: 14px;
     font-size: 14.5px; z-index: 40; max-width: 90vw; text-align: center;
@@ -209,6 +208,24 @@
   .confirm-card .ctext { font-size: 15px; line-height: 1.45; margin-bottom: 16px; }
 
   .back-wrap { margin-top: 20px; }
+
+  /* Живая лента дропов */
+  .feed-block {
+    background: var(--panel2); border: 1px solid var(--stroke);
+    border-radius: 16px; padding: 14px 16px; margin-top: 22px;
+  }
+  .feed-title { font-size: 14px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+  .feed-item { font-size: 13.5px; padding: 5px 0; border-top: 1px solid var(--stroke); }
+  .feed-item:first-of-type { border-top: none; }
+  .feed-item .who { color: #6f9bff; font-weight: 600; }
+  .feed-item .n { font-family: 'Consolas', monospace; }
+
+  /* Индикатор сервера */
+  #connStatus {
+    position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+    padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;
+    background: rgba(0,0,0,.55); color: #fff; z-index: 9999;
+  }
 </style>
 </head>
 <body>
@@ -258,18 +275,29 @@
     <button class="btn" id="confirmNo">Отмена</button>
   </div>
 </div>
+<div class="confirm-box" id="priceBox">
+  <div class="confirm-card">
+    <div class="ctext">Сколько хочешь за номер? (монет)</div>
+    <input id="priceInput" type="number" inputmode="numeric" min="1"
+      style="width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);
+             background:#0f1626;color:#e8ecf5;font-size:17px;margin-bottom:14px;">
+    <button class="btn green" id="priceOk">Выставить</button>
+    <button class="btn" id="priceCancel">Отмена</button>
+  </div>
+</div>
+<div id="connStatus">⏳ Подключение…</div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script>
 // ===== TELEGRAM WEB APP =====
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
 if (tg) {
   tg.ready();
   tg.expand();
-  // Подстраховка на случай светлой темы Telegram: свои цвета всё равно главные
   if (tg.setHeaderColor) try { tg.setHeaderColor('#0a0e1a'); } catch (e) {}
 }
 
-// Вибрация: безопасно работает и вне Telegram
 function haptic(kind) {
   if (!tg || !tg.HapticFeedback) return;
   try {
@@ -299,6 +327,45 @@ const NEXT_RARITY = {
 const RARITY_WEIGHT = {"Обычный": 849, "Редкий": 110, "Эпический": 30, "Мифический": 8, "ЛЕГЕНДАРНЫЙ": 2, "УЛЬТРА": 1};
 const RARITY_EMOJI = {"Обычный": "⚪", "Редкий": "🔵", "Эпический": "🟣", "Мифический": "💠", "ЛЕГЕНДАРНЫЙ": "🟡", "УЛЬТРА": "🌟"};
 
+// ===== FIREBASE — конфиг твоего проекта telnumber =====
+const firebaseConfig = {
+  apiKey: "AIzaSyB38gm-D46vKptbzwXE7mVsxWA9S36NCww",
+  authDomain: "telnumber-b4e4d.firebaseapp.com",
+  databaseURL: "https://telnumber-b4e4d-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "telnumber-b4e4d",
+  appId: "1:578107210609:web:712b0fcbfd5992fe6594d0"
+};
+
+const CONFIG_OK = firebaseConfig.apiKey.indexOf("ВСТАВЬ") === -1;
+let db = null;
+const tgUser = (window.Telegram && window.Telegram.WebApp && Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user)
+  ? Telegram.WebApp.initDataUnsafe.user
+  : { id: Date.now(), first_name: "Гость" };
+const MYID = String(tgUser.id);
+const MYNAME = (tgUser.first_name || "Гость");
+
+if (window.firebase && CONFIG_OK) {
+  try {
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.database();
+  } catch (e) { db = null; }
+}
+
+// Индикатор сервера
+(function () {
+  const el = document.getElementById('connStatus');
+  function setOnline(on) {
+    el.textContent = on ? '🟢 Онлайн' : '🔴 Нет связи с сервером';
+    el.style.background = on ? 'rgba(0,120,60,.75)' : 'rgba(180,30,30,.75)';
+  }
+  if (!db) {
+    el.textContent = CONFIG_OK ? '🔴 Нет связи с сервером' : '🔴 Сервер не настроен';
+    el.style.background = 'rgba(180,30,30,.75)';
+  } else {
+    db.ref('.info/connected').on('value', (snap) => setOnline(snap.val() === true));
+  }
+})();
+
 // ===== СОХРАНЕНИЕ =====
 function load() {
   try {
@@ -308,10 +375,11 @@ function load() {
       if (!s.won) s.won = [];
       if (typeof s.pity !== "number") s.pity = 0;
       if (typeof s.ultraGone !== "boolean") s.ultraGone = false;
+      if (!s.myLots) s.myLots = {};
       return s;
     }
   } catch (e) {}
-  return { coins: START_COINS, won: [], pity: 0, pending: null, ultraGone: false };
+  return { coins: START_COINS, won: [], pity: 0, pending: null, ultraGone: false, myLots: {} };
 }
 function save() { localStorage.setItem("roulette_save", JSON.stringify(S)); }
 let S = load();
@@ -389,6 +457,46 @@ function spinOnce() {
   return prize;
 }
 
+// Общая УЛЬТРА на всех: кто первый поймал, у того и осталась
+if (db) db.ref('game/ultraTaken').on('value', (snap) => {
+  if (snap.val() && !S.ultraGone) { S.ultraGone = true; save(); }
+});
+function claimUltra(cb) {
+  if (!db) { cb(true); return; }
+  db.ref('game/ultraTaken').transaction((cur) => {
+    if (cur) return; // уже кто-то забрал
+    return { by: MYID, name: MYNAME, time: Date.now() };
+  }).then((res) => {
+    if (res.committed) { S.ultraGone = true; save(); cb(true); }
+    else cb(false);
+  });
+}
+
+// Живая лента дропов
+let feedItems = [];
+if (db) db.ref('feed').limitToLast(15).on('child_added', (snap) => {
+  feedItems.push(snap.val());
+  if (feedItems.length > 15) feedItems.shift();
+  const fl = document.getElementById('feedList');
+  if (fl) fl.innerHTML = feedHtml();
+});
+function feedHtml() {
+  if (!feedItems.length) return '<div class="screen-sub">Дропов пока не было.</div>';
+  let html = '';
+  for (let i = feedItems.length - 1; i >= 0; i--) {
+    const f = feedItems[i];
+    html += '<div class="feed-item"><span class="who">' + (f.name || "Гость") + '</span> → ' +
+      '<span class="n">' + f.number + '</span> ' + (RARITY_EMOJI[f.rarity] || "") + '</div>';
+  }
+  return html;
+}
+function publishDrop(prize) {
+  if (!db) return;
+  db.ref('feed').push({
+    name: MYNAME, number: prize.number, rarity: prize.rarity, value: prize.value, time: Date.now()
+  });
+}
+
 // ===== ЭКРАН =====
 const area = document.getElementById("area");
 const balanceEl = document.getElementById("balance");
@@ -429,7 +537,7 @@ function plural(n) {
   return "номеров";
 }
 
-// ===== ТОСТ И ПОДТВЕРЖДЕНИЕ (вместо alert/confirm) =====
+// ===== ТОСТ И ПОДТВЕРЖДЕНИЕ =====
 let toastTimer = null;
 function toast(msg) {
   const t = document.getElementById("toast");
@@ -459,7 +567,6 @@ document.getElementById("confirmNo").onclick = () => {
 // ===== ГЛАВНЫЙ ЭКРАН =====
 function showMenu() {
   updateTop();
-  // Если остался нерешённый номер с прошлой сессии — сразу показываем его
   if (S.pending) { showResult(S.pending); return; }
   area.innerHTML =
     '<button class="row gold" onclick="startSpin()">' +
@@ -486,6 +593,14 @@ function showMenu() {
       '</div>' +
       '<div class="chevron">›</div>' +
     '</button>' +
+    '<button class="row blue" onclick="showMarket()">' +
+      '<div class="icon">🛒</div>' +
+      '<div class="texts">' +
+        '<div class="name">Рынок номеров</div>' +
+        '<div class="sub">покупай чужие и продавай свои</div>' +
+      '</div>' +
+      '<div class="chevron">›</div>' +
+    '</button>' +
     '<button class="row red" onclick="sellAllCommons()">' +
       '<div class="icon">🏷️</div>' +
       '<div class="texts">' +
@@ -493,20 +608,16 @@ function showMenu() {
         '<div class="sub">Быстрая продажа</div>' +
       '</div>' +
       '<div class="chevron">›</div>' +
-    '</button>';
+    '</button>' +
+    (db ?
+      '<div class="feed-block"><div class="feed-title">🔥 Последние дропы игроков</div><div id="feedList">' + feedHtml() + '</div></div>'
+      : "");
 }
 
 // ===== КРУТКА =====
 function startSpin() {
   if (S.pending) { showResult(S.pending); return; }
   if (S.coins < SPIN_COST) { haptic('error'); toast("Не хватает монет! Нужно " + SPIN_COST + "."); return; }
-  S.coins -= SPIN_COST;
-  const prize = spinOnce();
-  if (prize.rarity === "УЛЬТРА") S.ultraGone = true;
-  S.pending = prize;
-  save();
-  updateTop();
-  haptic('light');
 
   overlay.classList.add("show");
   let ticks = 0;
@@ -515,11 +626,40 @@ function startSpin() {
     ticks++;
     if (ticks > 18) {
       clearInterval(timer);
-      spinNum.textContent = prize.number;
-      setTimeout(() => {
-        overlay.classList.remove("show");
-        showResult(prize);
-      }, 700);
+
+      let prize = spinOnce();
+
+      // УЛЬТРА одна на всех: пробуем захватить через сервер
+      const finish = () => {
+        spinNum.textContent = prize.number;
+        setTimeout(() => {
+          overlay.classList.remove("show");
+          showResult(prize);
+          publishDrop(prize);
+        }, 700);
+      };
+      if (prize.rarity === "УЛЬТРА") {
+        claimUltra((got) => {
+          if (!got) {
+            haptic('warning');
+            prize = spinOnce(); // пересып, УЛЬТРА уже занята
+          }
+          S.coins -= SPIN_COST;
+          if (prize.rarity === "УЛЬТРА") S.ultraGone = true;
+          S.pending = prize;
+          save();
+          updateTop();
+          haptic('light');
+          finish();
+        });
+        return;
+      }
+      S.coins -= SPIN_COST;
+      S.pending = prize;
+      save();
+      updateTop();
+      haptic('light');
+      finish();
     }
   }, 90);
 }
@@ -579,7 +719,8 @@ function showCollection() {
   }
   S.won.forEach((p, i) => {
     html += prizeHtml(p, i + 1) +
-      '<button class="btn red" onclick="sellOne(' + i + ')">Продать за ' + fmt(p.value) + '</button>';
+      '<button class="btn red" onclick="sellOne(' + i + ')">Продать за ' + fmt(p.value) + '</button>' +
+      '<button class="btn" onclick="askPrice(' + i + ')">🛒 Выставить на рынок</button>';
   });
   html += '<div class="back-wrap"><button class="btn" onclick="showMenu()">В меню</button></div>';
   area.innerHTML = html;
@@ -664,6 +805,124 @@ function doCraft(rarity) {
     '<div class="back-wrap"><button class="btn" onclick="showMenu()">В меню</button></div>';
   area.innerHTML = html;
 }
+
+// ===== РЫНОК =====
+function showMarket() {
+  updateTop();
+  if (!db) { toast("Сервер не настроен — рынок недоступен."); return; }
+  area.innerHTML = '<div class="screen-title">🛒 Рынок номеров</div>' +
+    '<div id="marketList"><div class="screen-sub">Загрузка…</div></div>' +
+    '<div class="back-wrap"><button class="btn" onclick="showMenu()">В меню</button></div>';
+  db.ref('market').on('value', (snap) => {
+    const list = document.getElementById('marketList');
+    if (!list) return; // ушли с экрана рынка — слушатель остаётся, но безвреден
+    const lots = snap.val() || {};
+    const ids = Object.keys(lots).filter(id => lots[id].status === 'active');
+    let html = '';
+    if (!ids.length) html = '<div class="screen-sub">Пока пусто. Стань первым продавцом!</div>';
+    ids.forEach((id) => {
+      const l = lots[id];
+      const mine = String(l.sellerId) === String(MYID);
+      html += prizeHtml(l, 0) +
+        '<div class="price">🏷️ Цена: ' + fmt(l.price) + ' монет · продавец: ' + (l.sellerName || "Гость") + '</div>' +
+        (mine
+          ? '<button class="btn red" onclick="cancelLot(\'' + id + '\')">Снять с продажи</button>'
+          : '<button class="btn green" onclick="buyLot(\'' + id + '\')">Купить за ' + fmt(l.price) + '</button>');
+    });
+    list.innerHTML = html;
+  });
+}
+
+function listLot(i, price) {
+  const p = S.won[i];
+  if (!p || !db) { toast("Сервер не настроен — выставлять пока нельзя."); return; }
+  const lotId = db.ref('market').push().key;
+  db.ref('market/' + lotId).set({
+    number: p.number, rarity: p.rarity, desc: p.desc || "", value: p.value,
+    price: price, sellerId: MYID, sellerName: MYNAME, status: "active"
+  });
+  S.won.splice(i, 1);
+  if (!S.myLots) S.myLots = {};
+  S.myLots[lotId] = true;
+  save();
+  showCollection();
+  toast("Номер выставлен на рынок за " + fmt(price) + " монет!");
+}
+
+function cancelLot(id) {
+  db.ref('market/' + id).once('value').then((snap) => {
+    const l = snap.val();
+    if (!l || l.status !== 'active') { toast("Этот лот уже не активен."); showMarket(); return; }
+    db.ref('market/' + id).remove();
+    S.won.push({ number: l.number, rarity: l.rarity, desc: l.desc, value: l.value });
+    if (S.myLots) delete S.myLots[id];
+    save();
+    showMarket();
+    toast("Номер снят с продажи и вернулся в коллекцию.");
+  });
+}
+
+function buyLot(id) {
+  db.ref('market/' + id).once('value').then((snap) => {
+    const l = snap.val();
+    if (!l || l.status !== 'active') { toast("Уже продан или снят."); showMarket(); return; }
+    if (String(l.sellerId) === String(MYID)) return;
+    if (S.coins < l.price) { haptic('error'); toast("Не хватает монет! Нужно " + fmt(l.price) + "."); return; }
+    db.ref('market/' + id).transaction((cur) => {
+      if (!cur || cur.status !== 'active') return; // кто-то купил раньше
+      return Object.assign({}, cur, { status: "sold", buyerId: MYID, buyerName: MYNAME });
+    }).then((res) => {
+      if (res.committed) {
+        S.coins -= l.price;
+        S.won.push({ number: l.number, rarity: l.rarity, desc: l.desc, value: l.value });
+        save();
+        updateTop();
+        haptic('success');
+        toast("Куплен номер " + l.number + " за " + fmt(l.price) + "!");
+      } else {
+        haptic('warning');
+        toast("Кто-то успел купить первым!");
+        showMarket();
+      }
+    });
+  });
+}
+
+// Продавцу падают монеты, когда его лот кто-то купил
+if (db) db.ref('market').on('value', (snap) => {
+  const lots = snap.val() || {};
+  Object.keys(lots).forEach((id) => {
+    const l = lots[id];
+    if (String(l.sellerId) !== String(MYID) || l.status !== 'sold') return;
+    db.ref('market/' + id).remove();
+    if (S.myLots) delete S.myLots[id];
+    S.coins += l.price;
+    save();
+    updateTop();
+    haptic('success');
+    toast("💰 Твой номер купил " + (l.buyerName || "игрок") + " за " + fmt(l.price) + " монет!");
+  });
+});
+
+// Окно ввода цены
+let priceCb = null;
+function askPrice(i) {
+  document.getElementById('priceInput').value = Math.max(100, S.won[i].value);
+  priceCb = i;
+  document.getElementById('priceBox').classList.add('show');
+}
+document.getElementById('priceOk').onclick = () => {
+  const i = priceCb;
+  priceCb = null;
+  const price = Math.floor(+document.getElementById('priceInput').value || 0);
+  document.getElementById('priceBox').classList.remove('show');
+  if (i === null || price < 1) { toast("Некорректная цена."); return; }
+  listLot(i, price);
+};
+document.getElementById('priceCancel').onclick = () => {
+  priceCb = null;
+  document.getElementById('priceBox').classList.remove('show');
+};
 
 showMenu();
 </script>
